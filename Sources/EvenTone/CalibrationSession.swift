@@ -5,6 +5,7 @@ struct CalibrationSession {
     enum Feedback { case louder, quieter }
 
     let referenceUID: String
+    let referenceName: String
     let referenceTrim: Double
     let volume: Double
     private(set) var targetUID: String?
@@ -14,8 +15,9 @@ struct CalibrationSession {
     private(set) var step: Double = 2
     private var lastFeedback: Feedback?
 
-    init(referenceUID: String, referenceTrim: Double, volume: Double) {
+    init(referenceUID: String, referenceName: String, referenceTrim: Double, volume: Double) {
         self.referenceUID = referenceUID
+        self.referenceName = referenceName
         self.referenceTrim = referenceTrim
         self.volume = volume
     }

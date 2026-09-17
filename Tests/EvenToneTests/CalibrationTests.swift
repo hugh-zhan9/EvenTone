@@ -2,7 +2,7 @@ import Foundation
 
 final class CalibrationTests {
     func testFailedTargetPlaybackCanBeRetriedWithoutLosingDraft() {
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 4, volume: 0.3)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 4, volume: 0.3)
         session.selectTarget(uid: "target", trim: 5)
         session.markPlayed(.reference); session.markPlayed(.target)
         session.adjust(.quieter)
@@ -10,6 +10,7 @@ final class CalibrationTests {
         expectFalse(session.canCompare)
         expectTrue(session.heardReference)
         expectEqual(session.targetUID, "target")
+        expectEqual(session.referenceName, "Reference headphones")
         expectEqual(session.draftTrim, 7)
         session.preparePlayback(.target)
         session.markPlayed(.target) // Reconnected device; same session and candidate.
@@ -23,7 +24,7 @@ final class CalibrationTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults: defaults)
         preferences.setTrim(1, for: "target")
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 0, volume: 0.3)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 0, volume: 0.3)
         session.selectTarget(uid: "target", trim: 5)
         session.markPlayed(.reference); session.markPlayed(.target)
         session.preparePlayback(.reference)
@@ -46,7 +47,7 @@ final class CalibrationTests {
         preferences.setTrim(3, for: "other")
         preferences.volume = 0.3
         preferences.processingEnabled = true
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 4, volume: 0.3)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 4, volume: 0.3)
         session.selectTarget(uid: "target", trim: -2)
         session.markPlayed(.reference); session.markPlayed(.target)
         session.adjust(.quieter)
@@ -68,7 +69,7 @@ final class CalibrationTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults: defaults)
         preferences.setTrim(5, for: "target")
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 0, volume: 0.5)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 0, volume: 0.5)
         session.selectTarget(uid: "target", trim: 5)
         session.markPlayed(.reference); session.markPlayed(.target)
         session.adjust(.louder)
@@ -79,10 +80,11 @@ final class CalibrationTests {
         expectFalse(session.save(to: preferences))
         expectEqual(preferences.trim(for: "target"), 5)
         expectEqual(session.targetUID, "target")
+        expectEqual(session.referenceName, "Reference headphones")
     }
 
     func testOnlyTwoDifferentAuditionedDevicesCanMatch() {
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 0, volume: 0.5)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 0, volume: 0.5)
         session.markPlayed(.reference); session.markPlayed(.target)
         expectFalse(session.canCompare)
         session.selectTarget(uid: "reference", trim: 0)
@@ -98,7 +100,7 @@ final class CalibrationTests {
     }
 
     func testFeedbackDirectionRefinesAndStaysWithinLimits() {
-        var session = CalibrationSession(referenceUID: "reference", referenceTrim: 0, volume: 0.5)
+        var session = CalibrationSession(referenceUID: "reference", referenceName: "Reference headphones", referenceTrim: 0, volume: 0.5)
         session.selectTarget(uid: "target", trim: 0)
         session.markPlayed(.reference); session.markPlayed(.target)
         session.adjust(.louder)

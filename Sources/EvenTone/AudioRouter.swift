@@ -171,19 +171,18 @@ final class AudioWorker: @unchecked Sendable {
     }
 
     func start(device: OutputDevice, automatic: Bool, volume: Float, trim: Float) async throws {
-        try await perform { [self] router in
-            referencePlayer.stop()
+        try await perform { router in
             try router.start(device: device, automatic: automatic, volume: volume, trim: trim)
         }
     }
 
     func stop() async throws {
-        try await perform { [self] router in referencePlayer.stop(); try router.stop() }
+        try await perform { router in try router.stop() }
     }
 
     func playReference(uid: String, volume: Double, trim: Double) async throws {
-        try await perform { [self] router in
-            guard !router.isRunning else { throw AudioFailure(message: "请先暂停普通音频处理。") }
+        // The process tap excludes this app, so the reference is never processed twice.
+        try await perform { [self] _ in
             try referencePlayer.play(uid: uid, volume: volume, trim: trim)
         }
     }

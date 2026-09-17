@@ -49,7 +49,6 @@ final class AppModel: ObservableObject {
     var hasSignal: Bool { enabled && running && !suspended && receivingAudio && meters.inputDB > -70 }
     var status: String {
         if busy { return busyMessage }
-        if calibration != nil { return "引导校准中 · 普通处理已暂停" }
         if error != nil { return "需要处理" }
         if suspended { return "睡眠暂停" }
         if !enabled { return "已关闭" }
@@ -104,13 +103,6 @@ final class AppModel: ObservableObject {
     func refreshDevice() {
         guard !exiting else { return }
         if busy { refreshPending = true; return }
-        if calibration != nil {
-            runOperation("正在更新设备列表…", calibrationOperation: true) { [self] in
-                do { outputDevices = try await worker.availableDevices() }
-                catch { calibrationError = "暂时无法更新设备列表：\(error.localizedDescription)" }
-            }
-            return
-        }
         runOperation("正在更新设备…") { [self] in
             outputDevices = try await worker.availableDevices()
             try await syncDevice()
@@ -136,11 +128,11 @@ final class AppModel: ObservableObject {
 
     func beginCalibration() {
         guard canBeginCalibration, let device else { return }
-        calibration = CalibrationSession(referenceUID: device.uid, referenceTrim: trim, volume: volume)
+        calibration = CalibrationSession(referenceUID: device.uid, referenceName: device.name,
+                                         referenceTrim: trim, volume: volume)
         calibrationError = nil
         calibrationNotice = nil
         calibrationCancelPending = false
-        runOperation("正在准备校准…") { [self] in try await stop() }
     }
 
     func selectCalibrationTarget(_ uid: String) {
@@ -204,7 +196,10 @@ final class AppModel: ObservableObject {
             calibrationError = nil
             calibrationCancelPending = false
             try await syncDevice()
-            if enabled && !suspended { try await startCurrent() }
+            // Saving may update the currently playing device; keep the existing DSP state.
+            if let device { trim = preferences.trim(for: device.uid) }
+            if suspended { try await stop() }
+            else if enabled && !running { try await startCurrent() }
         }
     }
 
@@ -257,8 +252,6 @@ final class AppModel: ObservableObject {
                     calibrationPlaying = nil
                     try? await worker.stopReference()
                 } else {
-                    calibration = nil
-                    calibrationPlaying = nil
                     enabled = false
                     running = false
                     self.error = error.localizedDescription
@@ -284,50 +277,41 @@ final class AppModel: ObservableObject {
     private func configure() {
         // Bound the queue while a synchronous HAL call is pending; startCurrent applies
         // the latest settings once it returns.
-        guard !busy, calibration == nil else { return }
+        guard !busy else { return }
         worker.configure(automatic: automatic, volume: Float(volume), trim: Float(trim))
     }
 
     private func poll() {
-        if calibration != nil {
-            pollCalibration()
-            return
-        }
-        guard enabled && running && !suspended && !busy && !pollPending && !exiting else { return }
+        let processing = enabled && running && !suspended
+        guard (processing || calibrationPlaying != nil), !busy, !pollPending, !exiting else { return }
         pollPending = true
         let expectedGeneration = generation
         Task { [self] in
             defer { pollPending = false }
-            guard let snapshot = try? await worker.meters(), expectedGeneration == generation else { return }
-            meters = snapshot
-            if meters.callbacks != lastCallbacks {
-                lastCallbacks = meters.callbacks
-                lastCallbackAt = Date()
+            if processing {
+                guard let snapshot = try? await worker.meters(), expectedGeneration == generation else { return }
+                meters = snapshot
+                if meters.callbacks != lastCallbacks {
+                    lastCallbacks = meters.callbacks
+                    lastCallbackAt = Date()
+                }
+                receivingAudio = Date().timeIntervalSince(lastCallbackAt) < 0.5
+                if meters.formatFault {
+                    fail("输出设备的音频缓冲格式发生变化，请确认设备后重新开启。")
+                    return
+                }
             }
-            // Idle / suspended hardware can stop calling IO without an error. Use freshness
-            // only for the display, never as a reason to tear down a successfully opened route.
-            receivingAudio = Date().timeIntervalSince(lastCallbackAt) < 0.5
-            if meters.formatFault {
-                fail("输出设备的音频缓冲格式发生变化，请确认设备后重新开启。")
-            }
-        }
-    }
-
-    private func pollCalibration() {
-        guard calibrationPlaying != nil, !busy, !pollPending, !exiting else { return }
-        pollPending = true
-        let expectedGeneration = generation
-        Task { [self] in
-            defer { pollPending = false }
-            do {
-                let playing = try await worker.referenceIsPlaying()
-                guard expectedGeneration == generation, calibration != nil else { return }
-                if !playing { calibrationPlaying = nil }
-            } catch {
-                guard expectedGeneration == generation, calibration != nil else { return }
-                calibrationError = error.localizedDescription
-                if let side = calibrationPlaying { calibration?.preparePlayback(side) }
-                calibrationPlaying = nil
+            if let side = calibrationPlaying {
+                do {
+                    let playing = try await worker.referenceIsPlaying()
+                    guard expectedGeneration == generation, calibration != nil else { return }
+                    if !playing { calibrationPlaying = nil }
+                } catch {
+                    guard expectedGeneration == generation, calibration != nil else { return }
+                    calibrationError = error.localizedDescription
+                    calibration?.preparePlayback(side)
+                    calibrationPlaying = nil
+                }
             }
         }
     }

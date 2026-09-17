@@ -19,8 +19,18 @@ struct CalibrationView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if let session = model.calibration {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("日常播放 · \(model.device?.name ?? "未连接")").lineLimit(1)
+                    HStack {
+                        Circle().fill(model.enabled ? mint : Color.gray).frame(width: 6, height: 6)
+                        Text(model.status)
+                        Spacer()
+                        Text(model.enabled ? String(format: "补偿 %+.1f dB", model.trim) : "普通处理关闭")
+                    }
+                }
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.65))
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("参考设备 · \(model.device?.name ?? "未连接")")
+                    Text("参考设备 · \(session.referenceName)")
                         .font(.system(size: 13, weight: .medium))
                     Picker("匹配设备", selection: Binding(get: { session.targetUID ?? "" }, set: model.selectCalibrationTarget)) {
                         Text("请选择另一副设备").tag("")
@@ -105,6 +115,10 @@ struct CalibrationView: View {
 
                 if let error = model.calibrationError {
                     Text(error).font(.system(size: 12)).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let error = model.error {
+                    Text("普通音频处理：\(error)").font(.system(size: 12)).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
