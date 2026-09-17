@@ -2,7 +2,7 @@ import importlib.util
 import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 path = Path(__file__).resolve().parents[2] / "scripts/publish_release.py"
 spec = importlib.util.spec_from_file_location("publish_release", path)
@@ -20,8 +20,13 @@ class PublishTests(unittest.TestCase):
         return {"id": 123, "tag_name": "v0.2.0", "draft": draft, "target_commitish": self.sha}
 
     def publish_api(self, moved=False):
-        return Mock(side_effect=[[[]], self.ref(), [[self.release()]],
+        return Mock(side_effect=[[[]], self.ref(), self.release(),
                                  self.ref(sha="b" * 40) if moved else self.ref()])
+
+    def setUp(self):
+        reader = patch.object(Path, "read_text", return_value="Release notes")
+        reader.start()
+        self.addCleanup(reader.stop)
 
     def test_existing_lightweight_tag_matches(self):
         api = Mock(return_value=self.ref())
@@ -57,12 +62,14 @@ class PublishTests(unittest.TestCase):
 
     def test_success_uploads_as_draft_then_publishes(self):
         run = Mock()
+        api = self.publish_api()
         module.publish("owner/repo", "v0.2.0", "0.2.0", self.sha, False,
-                       Path("assets"), self.publish_api(), run)
-        self.assertIn("--draft", run.call_args_list[0].args[0])
-        self.assertIn("--verify-tag", run.call_args_list[0].args[0])
-        self.assertIn("repos/owner/repo/releases/123", run.call_args_list[1].args[0])
-        self.assertIn("draft=false", run.call_args_list[1].args[0])
+                       Path("assets"), api, run)
+        self.assertIn("draft=true", api.call_args_list[2].args)
+        self.assertIn("/releases/123/assets?", run.call_args_list[0].args[0][2])
+        self.assertIn("/releases/123/assets?", run.call_args_list[1].args[0][2])
+        self.assertIn("repos/owner/repo/releases/123", run.call_args_list[2].args[0])
+        self.assertIn("draft=false", run.call_args_list[2].args[0])
 
     def test_upload_failure_or_tag_movement_never_publishes(self):
         api = self.publish_api()
@@ -74,7 +81,7 @@ class PublishTests(unittest.TestCase):
         run = Mock()
         with self.assertRaises(ValueError):
             module.publish("owner/repo", "v0.2.0", "0.2.0", self.sha, False, Path("assets"), api, run)
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_count, 2)
 
     def test_existing_published_or_draft_on_later_page_blocks_creation(self):
         for draft in [False, True]:
@@ -93,12 +100,12 @@ class PublishTests(unittest.TestCase):
             module.publish("owner/repo", "v0.2.0", "0.2.0", self.sha, False, Path("assets"), api, run)
         run.assert_not_called()
 
-    def test_ambiguous_new_draft_is_not_published(self):
-        api = Mock(side_effect=[[[]], self.ref(), [[self.release(), self.release()]]])
+    def test_invalid_create_response_is_not_published(self):
+        api = Mock(side_effect=[[[]], self.ref(), {**self.release(), "tag_name": "other-tag"}])
         run = Mock()
         with self.assertRaises(ValueError):
             module.publish("owner/repo", "v0.2.0", "0.2.0", self.sha, False, Path("assets"), api, run)
-        self.assertEqual(run.call_count, 1)
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

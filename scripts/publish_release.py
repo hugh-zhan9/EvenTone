@@ -55,21 +55,26 @@ def publish(repo, tag, label, sha, prerelease, directory, api=gh_json, run=subpr
     if releases_for_tag(repo, tag, api):
         raise ValueError(f"Release or draft already exists for {tag}; refusing to overwrite it")
     ensure_tag(repo, tag, sha, prerelease, api)
-    args = ["gh", "release", "create", tag, str(directory / f"EvenTone-{label}-macOS-arm64.zip"),
-            str(directory / "SHA256SUMS.txt"), "--repo", repo, "--draft", "--verify-tag", "--target", sha,
-            "--title", f"EvenTone {label}", "--notes-file", str(directory / "release-notes.md")]
-    if prerelease:
-        args += ["--prerelease", "--latest=false"]
-    run(args, check=True)
-    created = releases_for_tag(repo, tag, api)
-    if len(created) != 1 or not created[0]["draft"] or created[0]["target_commitish"] != sha:
-        raise ValueError("Cannot uniquely identify the new draft; refusing publication")
+    created = api(f"repos/{repo}/releases", "--method", "POST", "-f", f"tag_name={tag}",
+                  "-f", f"target_commitish={sha}", "-f", f"name=EvenTone {label}",
+                  "-F", "draft=true", "-F", f"prerelease={str(prerelease).lower()}",
+                  "-f", f"body={(directory / 'release-notes.md').read_text()}")
+    if (not isinstance(created.get("id"), int) or not created.get("draft")
+            or created.get("tag_name") != tag or created.get("target_commitish") != sha):
+        raise ValueError("Unexpected create-release response; refusing publication")
+    # Use the creation response ID instead of rediscovering the new draft via a list.
+    for filename, content_type in [(f"EvenTone-{label}-macOS-arm64.zip", "application/zip"),
+                                   ("SHA256SUMS.txt", "text/plain")]:
+        url = f"https://uploads.github.com/repos/{repo}/releases/{created['id']}/assets?name={filename}"
+        run(["gh", "api", url, "--method", "POST", "--header", f"Content-Type: {content_type}",
+             "--input", str(directory / filename), "--silent"], check=True)
     # Detect a tag moved during asset upload before exposing the draft.
     ensure_tag(repo, tag, sha, False, api)
-    args = ["gh", "api", f"repos/{repo}/releases/{created[0]['id']}", "--method", "PATCH", "-F", "draft=false"]
+    args = ["gh", "api", f"repos/{repo}/releases/{created['id']}", "--method", "PATCH", "-F", "draft=false", "--silent"]
     if prerelease:
         args += ["-f", "make_latest=false"]
     run(args, check=True)
+    print(f"Published https://github.com/{repo}/releases/tag/{tag}")
 
 
 if __name__ == "__main__":

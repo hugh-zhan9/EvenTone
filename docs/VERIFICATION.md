@@ -92,7 +92,8 @@
 - `EVENTONE_DIST_DIR=.build/ci-build ./scripts/build.sh` 验证构建到独立目录，未替换本机正在运行的 app；构建、Info.plist、签名检查通过。
 - actionlint v1.7.12、shell 语法、Markdown 相对链接与 diff 空白检查通过。
 - 独立审查发现“远端标签存在不等于匹配构建提交”，已加入上传前后解引用校验及同标签并发隔离，对应测试已通过。
-- 复审发现显式草稿创建不能依赖 CLI 的发布唯一性检查，已增加包含草稿的完整分页查重，以及新草稿唯一性和提交校验；最终按 release ID 公开，对应测试已通过。
+- 复审发现显式草稿创建不能依赖 CLI 的发布唯一性检查，已增加包含草稿的完整分页查重，以及创建响应和提交校验；使用创建响应返回的 release ID 上传和公开，对应测试已通过。
+- 首轮 Actions `35176833676` 的 macOS 构建、测试、打包及 artifact 上传通过；发布成功创建草稿及附件，但随后列表读回未通过唯一性检查，未公开。手动只读查询确认草稿内容及标签提交匹配。已改为直接使用创建 API 返回的 ID，取消创建后再次列表查找，保留创建前查重和上传前后标签校验。
 - 云端运行及附件见 [Actions](https://github.com/hugh-zhan9/EvenTone/actions/workflows/release.yml) 与 [Releases](https://github.com/hugh-zhan9/EvenTone/releases)。构建检查不代替硬件音频测试或 Apple 公证。
 
 ## 仍需实物 / 长时间验证
