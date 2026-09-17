@@ -1,0 +1,23 @@
+# SwiftPM and local application bundles
+/.build/
+/dist/
+/.swiftpm/
+
+# macOS and editor state
+.DS_Store
+*.xcuserstate
+xcuserdata/
+.idea/
+.vscode/
+
+# Local configuration and signing credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+
+# Local diagnostics
+*.log

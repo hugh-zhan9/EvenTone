@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleExecutable</key><string>EvenTone</string>
+    <key>CFBundleIdentifier</key><string>local.eventone.app</string>
+    <key>CFBundleName</key><string>EvenTone</string>
+    <key>CFBundleDisplayName</key><string>EvenTone · 匀声</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleIconFile</key><string>EvenTone</string>
+    <key>LSMinimumSystemVersion</key><string>14.2</string>
+    <key>LSUIElement</key><true/>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSAudioCaptureUsageDescription</key><string>EvenTone 需要处理其他应用播放的声音，以均衡视频响度并补偿不同耳机的音量差异。音频仅在本机实时处理，不会保存或上传。</string>
+</dict></plist>
