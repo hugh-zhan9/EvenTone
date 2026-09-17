@@ -2,8 +2,6 @@
 
 一个原生 macOS 菜单栏小工具，减少切换耳机、切换视频时反复调音量。
 
-[构建状态](https://github.com/hugh-zhan9/EvenTone/actions/workflows/release.yml) · [下载安装包](https://github.com/hugh-zhan9/EvenTone/releases)
-
 **源码版本：v0.3.0，30 项音频与应用逻辑测试通过。新增独立引导校准，保留手动设备补偿；已发布版本以 Releases 为准。** 下次实际登录启动、AirPods 切换、主观听感与长时间稳定性仍需验证，详见 [验证记录](docs/VERIFICATION.md)。
 
 - **设备补偿**：每个输出设备独立保存 -12～+12 dB 校准值，跟随系统默认输出设备。
