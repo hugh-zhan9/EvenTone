@@ -82,6 +82,19 @@
 - 同一包的重开和再次开启中未观察到重复授权弹窗。当前签名为 adhoc，designated requirement 绑定代码哈希；结合 [Apple TN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)，此前连续重新编译后再授权与签名身份变化相符，但没有捕获每次弹窗，不能断言所有提示都由此引起。未改签名或重置系统授权。
 - 未主动注销或重启；实际登录启动待用户下次正常登录验证。错误转关闭的持久化由 AppModel 统一属性观察器覆盖，未对实机注入 HAL 失败。
 
+## 自动发布验证（2026-09-17）
+
+用户确认使用 GitHub Releases + Actions artifacts：main 推送生成预览版，v* 标签生成正式版。构建和发布合同见 D-007。
+
+- 原有 21 项测试及 release 编译（warnings-as-errors）基线通过；此次未修改音频实现。
+- 新增发布逻辑 15 项测试通过：main/标签/PR/手动触发、版本不匹配、异常输入、轻量/注解标签、精确提交读回、远端失败不当作标签缺失、上传失败和标签移动不公开草稿、已有发布或草稿拒绝重复创建、按本次草稿 ID 公开。
+- 新增打包 4 项测试通过：正式版/预览版 ZIP、路径含空格、校验和、解包签名、拒绝重复输出、缺失应用/错误版本/非法标签及签名损坏。
+- `EVENTONE_DIST_DIR=.build/ci-build ./scripts/build.sh` 验证构建到独立目录，未替换本机正在运行的 app；构建、Info.plist、签名检查通过。
+- actionlint v1.7.12、shell 语法、Markdown 相对链接与 diff 空白检查通过。
+- 独立审查发现“远端标签存在不等于匹配构建提交”，已加入上传前后解引用校验及同标签并发隔离，对应测试已通过。
+- 复审发现显式草稿创建不能依赖 CLI 的发布唯一性检查，已增加包含草稿的完整分页查重，以及新草稿唯一性和提交校验；最终按 release ID 公开，对应测试已通过。
+- 云端运行及附件见 [Actions](https://github.com/hugh-zhan9/EvenTone/actions/workflows/release.yml) 与 [Releases](https://github.com/hugh-zhan9/EvenTone/releases)。构建检查不代替硬件音频测试或 Apple 公证。
+
 ## 仍需实物 / 长时间验证
 
 - AirPods 与外置耳机主观校准、反复切换、耳内响度一致性。

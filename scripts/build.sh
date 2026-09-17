@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
 binary_dir="$(swift build -c release --show-bin-path)"
-bundle="$PWD/dist/EvenTone.app"
+bundle="${EVENTONE_DIST_DIR:-$PWD/dist}/EvenTone.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$binary_dir/EvenTone" "$bundle/Contents/MacOS/EvenTone"
 cp Resources/Info.plist "$bundle/Contents/Info.plist"

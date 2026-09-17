@@ -2,6 +2,8 @@
 
 一个原生 macOS 菜单栏小工具，减少切换耳机、切换视频时反复调音量。
 
+[构建状态](https://github.com/hugh-zhan9/EvenTone/actions/workflows/release.yml) · [下载安装包](https://github.com/hugh-zhan9/EvenTone/releases)
+
 **当前版本：v0.2.0，21 项自动测试通过。已验证系统音频处理、两档输入响度收敛、设备补偿、快速切换输出，以及登录启动的注册与取消。** 下次实际登录启动、AirPods 切换、主观听感与长时间稳定性仍需验证，详见 [验证记录](docs/VERIFICATION.md)。
 
 - **设备补偿**：每个输出设备独立保存 -12～+12 dB 校准值，跟随系统默认输出设备。
@@ -12,6 +14,8 @@
 - **本地处理**：不保存、不上传音频，不读取麦克风内容。需要系统音频录制权限。
 
 ## 打开 demo
+
+Apple Silicon Mac 可从 [Releases](https://github.com/hugh-zhan9/EvenTone/releases) 下载 `EvenTone-…-macOS-arm64.zip`，解压后打开 `EvenTone.app`。标记为 Pre-release 的是 main 分支预览版；当前安装包使用临时签名，尚未经过 Apple 公证，macOS 可能阻止打开。每个发布附带 `SHA256SUMS.txt`，可在下载目录运行 `shasum -a 256 -c SHA256SUMS.txt` 校验文件。
 
 要求 macOS 14.2+、Swift 5.10+ / Command Line Tools。克隆仓库后先构建：
 
@@ -65,6 +69,35 @@ open dist/EvenTone.app
 `swift build` 可检查源码编译；使用带 Info.plist 的 `.app` 运行音频功能，以便 macOS 正确显示用途说明。重新构建会覆盖本项目的 `dist/EvenTone.app`，构建前请退出正在运行的 EvenTone。
 
 测试通过 C DSP 直接处理合成信号，覆盖响度收敛、突变峰值、静音、低底噪、立体声比例、异常浮点值、单帧、单声道、缓冲区映射和配置持久化；还覆盖设备切换的异步确认、超时与错误，以及登录项注册、取消、待批准和外部状态变化。测试失败以非零状态退出。没有把算法输出自称为耳机实测。
+
+### 自动打包与发布
+
+| 事件 | 结果 |
+| --- | --- |
+| 推送到 `main` | 测试、打包，发布 `preview-<提交 SHA 前 12 位>` 预览版 |
+| 推送 `vX.Y.Z` 标签 | 测试、打包，发布正式版；标签必须与 Info.plist 版本一致 |
+| 提交 PR / 手动运行 workflow | 测试和打包，仅保存 Actions 构建产物 |
+
+发布文件为 ZIP 和 SHA-256 校验清单；Actions 构建产物保留 14 天，Releases 附件持续保留。首次流水线支持 Apple Silicon（arm64），尚未构建 Intel 版本。使用仓库自带的 `GITHUB_TOKEN`，无需配置个人令牌；构建任务只读，发布任务仅在受支持的 push 事件获得 Releases 写权限。不使用 GitHub Packages。
+
+正式发布前，修改 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，提交并推送，再为同一提交创建匹配标签，例如：
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+已有标签和 Release 不自动覆盖。发布前及公开草稿前会核对远端标签与构建提交，标签被移动时拒绝发布。同一提交已经发布成功时重跑发布任务会报版本已存在；上传失败可能留下草稿，应先检查该草稿与 Actions 日志，再决定如何处理。
+
+本地检查发布脚本（打包测试要求先构建 `dist/EvenTone.app`）：
+
+```sh
+python3 -B -m unittest discover -s Tests/ReleaseTests -v
+python3 -B -m unittest discover -s Tests/PackageTests -v
+./scripts/package.sh dist/EvenTone.app dist/release 0.2.0
+```
+
+`EVENTONE_DIST_DIR` 可指定构建产物目录，用于验证打包而不覆盖正在使用的应用。此流水线不包含 Developer ID 签名或公证证书配置。
 
 ## MVP 边界
 
