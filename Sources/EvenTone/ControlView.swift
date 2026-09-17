@@ -8,6 +8,19 @@ struct ControlView: View {
     private let secondary = Color.white.opacity(0.52)
 
     var body: some View {
+        VStack(spacing: 0) {
+            if model.calibration != nil {
+                CalibrationView(model: model)
+            } else {
+                mainPanel
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { model.loginItem.refresh() }
+        .onDisappear { model.finishCalibration(save: false) }
+    }
+
+    private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 12) {
                 ZStack {
@@ -36,7 +49,7 @@ struct ControlView: View {
                     Spacer()
                     Toggle("启用 EvenTone", isOn: Binding(get: { model.enabled }, set: model.setEnabled))
                         .labelsHidden().toggleStyle(.switch).tint(mint).accessibilityIdentifier("enableProcessing")
-                        .disabled(model.busy)
+                        .disabled(model.controlsLocked)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("让声音").foregroundStyle(.white.opacity(0.9))
@@ -67,6 +80,7 @@ struct ControlView: View {
                     Text("\(Int(model.volume * 100))%").font(.system(size: 12, design: .monospaced)).foregroundStyle(mint)
                 }
                 Slider(value: $model.volume, in: 0...1).tint(mint).accessibilityLabel("整体音量")
+                    .disabled(model.controlsLocked)
                 HStack {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("自动响度均衡").font(.system(size: 13, weight: .medium))
@@ -74,6 +88,7 @@ struct ControlView: View {
                     }
                     Spacer()
                     Toggle("自动响度均衡", isOn: $model.automatic).labelsHidden().toggleStyle(.switch).tint(mint)
+                        .disabled(model.controlsLocked)
                 }
             }
 
@@ -114,7 +129,7 @@ struct ControlView: View {
                     .environment(\.colorScheme, .dark)
                     .fixedSize()
                     .foregroundStyle(mint)
-                    .disabled(model.busy)
+                    .disabled(model.controlsLocked)
                     .accessibilityIdentifier("switchOutputDevice")
                 }
                 HStack {
@@ -123,12 +138,19 @@ struct ControlView: View {
                         Image(systemName: "questionmark.circle").foregroundStyle(secondary)
                     }.buttonStyle(.plain).help("如何校准两副耳机")
                     Spacer()
+                    Button("引导校准") {
+                        model.beginCalibration()
+                    }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(mint)
+                    .disabled(!model.canBeginCalibration)
+                    .help("以当前设备为参考，试听另一副设备并匹配音量。连接状态在试听时检查。")
+                    .accessibilityIdentifier("beginGuidedCalibration")
                     Text(String(format: "%+.1f dB", model.trim)).font(.system(size: 12, design: .monospaced)).foregroundStyle(mint)
                     Button("重置") { model.trim = 0 }.buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(secondary)
-                        .disabled(model.device == nil)
+                        .disabled(model.device == nil || model.controlsLocked)
                 }
                 Slider(value: $model.trim, in: -12...12, step: 0.5).tint(mint)
-                    .disabled(model.device == nil).accessibilityLabel("当前设备音量补偿")
+                    .disabled(model.device == nil || model.controlsLocked).accessibilityLabel("当前设备音量补偿")
                 HStack {
                     Text("更轻 −12 dB")
                     Spacer()
@@ -140,6 +162,9 @@ struct ControlView: View {
                     Text("播放一段熟悉的视频，开启 EvenTone。保持系统音量与整体音量不变，切换耳机后调节这里，让听感接近。每副耳机会单独记住补偿值。")
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.7)).lineSpacing(4)
                         .padding(12).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                }
+                if let notice = model.calibrationNotice {
+                    Text(notice).font(.system(size: 11)).foregroundStyle(mint).lineSpacing(3)
                 }
             }
 
@@ -167,7 +192,6 @@ struct ControlView: View {
         .background(Color(red: 0.065, green: 0.09, blue: 0.085))
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
-        .onAppear { model.loginItem.refresh() }
     }
 
     private func levelMeter(title: String, value: Float) -> some View {

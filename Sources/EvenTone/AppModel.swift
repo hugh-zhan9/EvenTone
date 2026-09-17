@@ -15,6 +15,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var receivingAudio = false
     @Published private(set) var error: String?
+    @Published private(set) var calibration: CalibrationSession?
+    @Published private(set) var calibrationPlaying: CalibrationSession.Side?
+    @Published private(set) var calibrationError: String?
+    @Published private(set) var calibrationNotice: String?
     @Published private(set) var meters = ETMeters(inputDB: -120, outputDB: -120, automaticGainDB: 0, reductionDB: 0, callbacks: 0, formatFault: false)
     @Published var volume: Double { didSet { preferences.volume = volume; configure() } }
     @Published var automatic: Bool { didSet { preferences.automatic = automatic; configure() } }
@@ -38,10 +42,14 @@ final class AppModel: ObservableObject {
     private var generation = 0
     private var busyMessage = "正在检测设备…"
     private var exiting = false
+    private var calibrationCancelPending = false
 
+    var controlsLocked: Bool { busy || calibration != nil }
+    var canBeginCalibration: Bool { !controlsLocked && device != nil && volume > 0 }
     var hasSignal: Bool { enabled && running && !suspended && receivingAudio && meters.inputDB > -70 }
     var status: String {
         if busy { return busyMessage }
+        if calibration != nil { return "引导校准中 · 普通处理已暂停" }
         if error != nil { return "需要处理" }
         if suspended { return "睡眠暂停" }
         if !enabled { return "已关闭" }
@@ -63,9 +71,10 @@ final class AppModel: ObservableObject {
         })
         observations.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.enabled else { return }
+                guard let self, self.enabled || self.calibration != nil else { return }
                 self.suspended = true
-                self.refreshDevice()
+                if self.calibration != nil { self.finishCalibration(save: false) }
+                else { self.refreshDevice() }
             }
         })
         observations.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -78,7 +87,7 @@ final class AppModel: ObservableObject {
     }
 
     func setEnabled(_ value: Bool) {
-        guard !busy else { return }
+        guard !controlsLocked else { return }
         error = nil
         enabled = value
         runOperation(value ? "正在连接音频…" : "正在关闭…") { [self] in
@@ -95,6 +104,13 @@ final class AppModel: ObservableObject {
     func refreshDevice() {
         guard !exiting else { return }
         if busy { refreshPending = true; return }
+        if calibration != nil {
+            runOperation("正在更新设备列表…", calibrationOperation: true) { [self] in
+                do { outputDevices = try await worker.availableDevices() }
+                catch { calibrationError = "暂时无法更新设备列表：\(error.localizedDescription)" }
+            }
+            return
+        }
         runOperation("正在更新设备…") { [self] in
             outputDevices = try await worker.availableDevices()
             try await syncDevice()
@@ -107,12 +123,86 @@ final class AppModel: ObservableObject {
     }
 
     func selectOutput(uid: String) {
-        guard !busy, device?.uid != uid else { return }
+        guard !controlsLocked, device?.uid != uid else { return }
         error = nil
         runOperation("正在切换输出…") { [self] in
             try await stop()
             try await worker.selectOutput(uid: uid)
             outputDevices = try await worker.availableDevices()
+            try await syncDevice()
+            if enabled && !suspended { try await startCurrent() }
+        }
+    }
+
+    func beginCalibration() {
+        guard canBeginCalibration, let device else { return }
+        calibration = CalibrationSession(referenceUID: device.uid, referenceTrim: trim, volume: volume)
+        calibrationError = nil
+        calibrationNotice = nil
+        calibrationCancelPending = false
+        runOperation("正在准备校准…") { [self] in try await stop() }
+    }
+
+    func selectCalibrationTarget(_ uid: String) {
+        guard !busy, calibration != nil else { return }
+        calibrationError = nil
+        runOperation("正在选择校准设备…", calibrationOperation: true) { [self] in
+            try await worker.stopReference()
+            calibrationPlaying = nil
+            calibration?.selectTarget(uid: uid, trim: preferences.trim(for: uid))
+        }
+    }
+
+    func playCalibration(_ side: CalibrationSession.Side) {
+        guard !busy, let session = calibration,
+              side == .reference || session.targetUID != nil else { return }
+        calibrationError = nil
+        calibration?.preparePlayback(side)
+        runOperation("正在准备参考声…", calibrationOperation: true) { [self] in
+            try await worker.stopReference()
+            calibrationPlaying = nil
+            let uid = side == .reference ? session.referenceUID : session.targetUID!
+            let gain = side == .reference ? session.referenceTrim : session.draftTrim
+            try await worker.playReference(uid: uid, volume: session.volume, trim: gain)
+            calibrationPlaying = side
+            calibration?.markPlayed(side)
+        }
+    }
+
+    func adjustCalibration(_ feedback: CalibrationSession.Feedback) {
+        guard !busy, calibration?.canCompare == true else { return }
+        calibration?.adjust(feedback)
+        playCalibration(.target)
+    }
+
+    func stopCalibrationSound() {
+        guard !busy, calibration != nil else { return }
+        runOperation("正在停止试听…", calibrationOperation: true) { [self] in
+            try await worker.stopReference()
+            calibrationPlaying = nil
+        }
+    }
+
+    func finishCalibration(save: Bool) {
+        guard calibration != nil, !exiting else { return }
+        if busy {
+            if !save { calibrationCancelPending = true }
+            return
+        }
+        guard !save || calibration?.canCompare == true else { return }
+        runOperation(save ? "正在保存校准…" : "正在结束校准…", calibrationOperation: save) { [self] in
+            try await worker.stopReference()
+            calibrationPlaying = nil
+            if save {
+                guard let session = calibration, session.save(to: preferences) else {
+                    throw AudioFailure(message: "请先完成两副设备的试听。")
+                }
+                let name = outputDevices.first { $0.uid == session.targetUID }?.name ?? "目标设备"
+                calibrationNotice = "已保存 \(name) 的匹配补偿，可继续手动微调。"
+            }
+            calibration = nil
+            calibrationError = nil
+            calibrationCancelPending = false
             try await syncDevice()
             if enabled && !suspended { try await startCurrent() }
         }
@@ -153,7 +243,8 @@ final class AppModel: ObservableObject {
         meters = try await worker.meters()
     }
 
-    private func runOperation(_ message: String, _ operation: @escaping @MainActor () async throws -> Void) {
+    private func runOperation(_ message: String, calibrationOperation: Bool = false,
+                              _ operation: @escaping @MainActor () async throws -> Void) {
         guard !exiting else { return }
         busy = true
         busyMessage = message
@@ -161,15 +252,27 @@ final class AppModel: ObservableObject {
         Task { [self] in
             do { try await operation() }
             catch {
-                enabled = false
-                running = false
-                self.error = error.localizedDescription
-                do { try await worker.stop() }
-                catch { self.error = "\(self.error ?? "")\n\(error.localizedDescription)" }
-                // No device or a disconnected device still needs the default-output listener.
-                if device == nil { try? await installMonitor() }
+                if calibrationOperation && calibration != nil {
+                    calibrationError = error.localizedDescription
+                    calibrationPlaying = nil
+                    try? await worker.stopReference()
+                } else {
+                    calibration = nil
+                    calibrationPlaying = nil
+                    enabled = false
+                    running = false
+                    self.error = error.localizedDescription
+                    do { try await worker.stop() }
+                    catch { self.error = "\(self.error ?? "")\n\(error.localizedDescription)" }
+                    // No device or a disconnected device still needs the default-output listener.
+                    if device == nil { try? await installMonitor() }
+                }
             }
             busy = false
+            if calibrationCancelPending && calibration != nil && !exiting {
+                finishCalibration(save: false)
+                return
+            }
             configure()
             if refreshPending && !exiting {
                 refreshPending = false
@@ -181,11 +284,15 @@ final class AppModel: ObservableObject {
     private func configure() {
         // Bound the queue while a synchronous HAL call is pending; startCurrent applies
         // the latest settings once it returns.
-        guard !busy else { return }
+        guard !busy, calibration == nil else { return }
         worker.configure(automatic: automatic, volume: Float(volume), trim: Float(trim))
     }
 
     private func poll() {
+        if calibration != nil {
+            pollCalibration()
+            return
+        }
         guard enabled && running && !suspended && !busy && !pollPending && !exiting else { return }
         pollPending = true
         let expectedGeneration = generation
@@ -202,6 +309,25 @@ final class AppModel: ObservableObject {
             receivingAudio = Date().timeIntervalSince(lastCallbackAt) < 0.5
             if meters.formatFault {
                 fail("输出设备的音频缓冲格式发生变化，请确认设备后重新开启。")
+            }
+        }
+    }
+
+    private func pollCalibration() {
+        guard calibrationPlaying != nil, !busy, !pollPending, !exiting else { return }
+        pollPending = true
+        let expectedGeneration = generation
+        Task { [self] in
+            defer { pollPending = false }
+            do {
+                let playing = try await worker.referenceIsPlaying()
+                guard expectedGeneration == generation, calibration != nil else { return }
+                if !playing { calibrationPlaying = nil }
+            } catch {
+                guard expectedGeneration == generation, calibration != nil else { return }
+                calibrationError = error.localizedDescription
+                if let side = calibrationPlaying { calibration?.preparePlayback(side) }
+                calibrationPlaying = nil
             }
         }
     }

@@ -9,6 +9,6 @@ let package = Package(
         .target(name: "AudioDSP", publicHeadersPath: "include",
                 linkerSettings: [.linkedFramework("CoreAudio")]),
         .executableTarget(name: "EvenTone", dependencies: ["AudioDSP"],
-                          linkerSettings: [.linkedFramework("SwiftUI"), .linkedFramework("CoreAudio"), .linkedFramework("ServiceManagement")])
+                          linkerSettings: [.linkedFramework("SwiftUI"), .linkedFramework("CoreAudio"), .linkedFramework("ServiceManagement"), .linkedFramework("AVFAudio")])
     ]
 )

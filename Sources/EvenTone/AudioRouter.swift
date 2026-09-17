@@ -138,6 +138,7 @@ final class AudioWorker: @unchecked Sendable {
     private let queue = DispatchQueue(label: "local.eventone.audio-control", qos: .userInitiated)
     private let router = AudioRouter()
     private let monitor = DeviceMonitor()
+    private let referencePlayer = ReferencePlayer()
     private var selection: OutputSelection?
 
     func currentDevice() async throws -> OutputDevice {
@@ -170,10 +171,25 @@ final class AudioWorker: @unchecked Sendable {
     }
 
     func start(device: OutputDevice, automatic: Bool, volume: Float, trim: Float) async throws {
-        try await perform { try $0.start(device: device, automatic: automatic, volume: volume, trim: trim) }
+        try await perform { [self] router in
+            referencePlayer.stop()
+            try router.start(device: device, automatic: automatic, volume: volume, trim: trim)
+        }
     }
 
-    func stop() async throws { try await perform { try $0.stop() } }
+    func stop() async throws {
+        try await perform { [self] router in referencePlayer.stop(); try router.stop() }
+    }
+
+    func playReference(uid: String, volume: Double, trim: Double) async throws {
+        try await perform { [self] router in
+            guard !router.isRunning else { throw AudioFailure(message: "请先暂停普通音频处理。") }
+            try referencePlayer.play(uid: uid, volume: volume, trim: trim)
+        }
+    }
+
+    func stopReference() async throws { try await perform { [self] _ in referencePlayer.stop() } }
+    func referenceIsPlaying() async throws -> Bool { try await perform { [self] _ in try referencePlayer.isPlaying() } }
     func meters() async throws -> ETMeters { try await perform { $0.meters } }
 
     func configure(automatic: Bool, volume: Float, trim: Float) {
@@ -184,6 +200,7 @@ final class AudioWorker: @unchecked Sendable {
         // Best effort only: termination must remain available even if HAL is stalled.
         // The OS also reclaims this process's private audio objects on process exit.
         queue.async { [self] in
+            referencePlayer.stop()
             try? router.stop()
             monitor.stop()
         }
