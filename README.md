@@ -159,8 +159,6 @@ scripts/               构建、测试、打包与发布脚本
 docs/                  设计与实机验证记录
 ```
 
-实现依据见 [概要设计](docs/loopx/design/2026-09-16-mvp/概要设计.md)、[实现合同](docs/loopx/design/2026-09-16-mvp/需求设计文档.md) 和 [Apple 官方示例](https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps)。Core Audio 细节同时参考本机 macOS SDK（开发工具包）头文件。
-
 ## 许可证
 
 Copyright (c) 2026 晚青。
