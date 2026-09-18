@@ -163,4 +163,6 @@ docs/                  设计与实机验证记录
 
 ## 许可证
 
-[MIT License](LICENSE)。
+Copyright (c) 2026 晚青。
+
+本项目采用 [GNU General Public License v3.0](LICENSE)（`GPL-3.0-only`，仅第 3 版）。
