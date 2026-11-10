@@ -8,6 +8,7 @@ let login = LoginItemTests()
 let calibration = CalibrationTests()
 let applicationMute = ApplicationMuteTests()
 let cases: [(String, () throws -> Void)] = [
+    ("Application mute covers all devices and output streams", applicationMute.testMuteCoversAllOutputStreams),
     ("Partial native mute failures clean up and survive stale UI responses", applicationMute.testPartialRoutingFailureCleansAndStaysVisible),
     ("Native mute transition orders suppression and exclusion", applicationMute.testRoutingTransitionOrderAndNoOp),
     ("Browser helpers group without merging distinct applications", applicationMute.testBrowserHelpersAndDistinctApps),

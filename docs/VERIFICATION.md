@@ -234,3 +234,35 @@ Chrome / Edge 使用与前节相同的两路低电平本地合成声；不暂停
 ### 提交与整合核对（2026-11-10）
 
 用户已授权将本任务提交、合入主分支并 push。提交前重新 fetch origin/main，确认远端与本地 main 同为基线 d22b966，没有额外主干变动。最终实现和测试输入未在上一轮通过后变更，仅补充验证记录与授权状态；复用 38 项测试、release 构建、有效变异、独立审查及三种输出的实机结果。任务提交后以整棵 tree 比较确认 main 快进整合结果，不因新增提交 SHA 或分支切换重编译。实际提交 SHA 与远端同步结果由本轮 Git 命令输出及交付回复记录。
+
+
+## 2026-11-10 · 微信视频原声漏过静音及通用覆盖修复
+
+用户报告微信视频显示静音后仍有声音，并明确要求所有应用都能控制，不能限定应用。以 main 8197a1f 的干净工作区开始；以下为提交前完成的修复与验证记录。
+
+### 故障证据与修正
+
+只读进程诊断正确将 WeChatAppEx 归到最外层 WeChat.app；旧设备过滤却只纳入当前设备活动的 process object，漏掉同应用的其他音频进程。取消设备过滤后，WeChat 主进程、wxplayer 和 WeChatAppEx 都参与同一应用分组。静音 tap 改为指定进程全部音频流的 stereo mixdown，不绑定设备或 stream；普通均衡通路仍只处理默认输出，不重定向其他设备。没有应用名白名单。
+
+旧版及仅扩大覆盖的第一版：界面显示 WeChat 已静音、处理电平归零，用户两次明确确认耳机中仍有原声。由此否定“电平归零即可证明原声静音”的验收方式。第二版保留同一全设备静音配置，新增私有 input-only aggregate/无状态 IOProc 主动读取并丢弃静音 tap 音频：同一视频持续播放时，用户确认“已经没有声音”；点击恢复后，电平重新出现（input -18.7 / output -27.4 dBFS），用户确认“声音已正常恢复”。这支持本机上未主动读取的静音 tap 未充分抑制原声这一根因；不推断所有 macOS 版本的内部实现原因。
+
+reader 只接进程输出 tap，不接物理输入或输出、不读取麦克风、不保存音频样本。AudioRouter 在原串行队列拥有 reader 和 tap；空选择先销毁 reader，再销毁 tap。失败沿用原事务清理与 sticky error，销毁失败保留资源句柄。
+
+### 验证
+
+- 基线 `nice -n 10 bash scripts/test.sh`：38 项通过。新增全设备/全部流配置回归，在旧的 device/stream 构造器下 exit 133；修复后同命令 39 项通过。覆盖空、单个、多个进程，以及私有、包含模式、muteBehavior；补充微信嵌套 app 与独立 wxplayer 的归属路径用例。
+- 最终 reader 版本沿用已通过的 39 项测试证据：该测试执行器消费的源文件、测试文件、DSP 和环境没有改变；reader 仅属于未纳入此执行器的 AudioRouter，另以完整编译和真实视频验证。没有把纯逻辑测试描述成 HAL 生命周期全覆盖。
+- 首次默认 SwiftPM 构建失败：缺少 SwiftUIMacros 插件。后续使用本记录前节已验证的 `nice -n 10 swift build --build-system native -j 2 -c release -Xswiftc -warnings-as-errors -Xswiftc -load-plugin-library -Xswiftc /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib`；最终 reader 版本 exit 0（4.50 秒）。保留 native 后端弃用警告，未修改系统配置。
+- 本机 dist/EvenTone.app 已替换为最终 binary，ad-hoc 签名及 `codesign --verify --strict` 通过；未触发新的系统授权。
+- 最终 UI：微信静音与恢复经用户听感确认；随后视频停止，关闭总开关正常，再开启正常，无清理错误，恢复为开启、等待音频；原音量、均衡、外置耳机、补偿、登录项不变。未在停止视频后假称重复静音实测。
+- `git diff --check` 通过。
+
+未验证：新版全部应用/全部设备的穷举、多应用同时静音、新 reader 在系统睡眠后的恢复，以及 HAL 原生资源操作的故障注入。此前 Chrome/Edge 电平证据不能独立证明旧实现原声被抑制，也不能直接替代新 reader 的多应用实测。本轮的确证结果为微信视频在外置耳机上的静音/恢复。
+
+### 磁盘清理
+
+磁盘降到 3 GiB 以下时暂停编译；用户明确授权清理历史构建和无关缓存。确认无 Swift/Clang 构建进程后，删除本仓库未使用的默认 SwiftPM 后端输出 `.build/out`（约 273 MiB），保留 native 编译缓存、源码、dist 和验证记录；可用空间恢复到 3.2 GiB 后才启动最终编译。没有清理其他工作区或系统共享缓存。
+
+独立只读复审最终 diff：无 Critical / Important；核查 reader 创建、更新、部分失败、清理与隐私边界。未由审查者运行构建或实机操作，审查不扩大上述实测范围。
+
+提交前核对：用户明确要求提交并 push；fetch 后本地 main 与 origin/main 均为 8197a1f。代码及测试输入与上述通过版本相同，仅补充文档，复用 39 项测试、最终 release 构建、签名、独立审查和用户微信静音/恢复实测；不重复编译。提交与远端同步结果以 Git 输出为准。

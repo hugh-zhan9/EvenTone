@@ -4,15 +4,13 @@ import Darwin
 
 /// Called only on AudioWorker's queue. Enumeration never captures audio.
 enum AudioApplications {
-    static func read(deviceID: AudioObjectID) throws -> [AudioApplication] {
+    static func read() throws -> [AudioApplication] {
         let objects = try Hardware.objects(Hardware.system, kAudioHardwarePropertyProcessObjectList)
         var applications: [AudioApplication] = []
         for object in objects {
             do {
                 let pid = try Hardware.value(object, kAudioProcessPropertyPID, initial: pid_t(0))
                 guard pid > 0, pid != getpid() else { continue }
-                let devices = try Hardware.objects(object, kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeOutput)
-                guard devices.contains(deviceID) else { continue }
                 let active = try Hardware.value(object, kAudioProcessPropertyIsRunningOutput, initial: UInt32(0)) != 0
                 let bundleID = try Hardware.string(object, kAudioProcessPropertyBundleID)
                 var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))

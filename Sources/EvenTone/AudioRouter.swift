@@ -9,6 +9,8 @@ final class AudioRouter {
     private var tap: AudioObjectID = 0
     private var aggregate: AudioObjectID = 0
     private var muteTap: AudioObjectID = 0
+    private var muteAggregate: AudioObjectID = 0
+    private var muteIOProc: AudioDeviceIOProcID?
     private let muteRouting = ProcessMuteRoutingState()
     private var routeDevice: OutputDevice?
     private var ownProcess: AudioObjectID = 0
@@ -115,20 +117,45 @@ final class AudioRouter {
     }
 
     private func updateMuteTap(_ processes: Set<UInt32>) throws {
-        guard let device = routeDevice else { return }
         if processes.isEmpty {
+            try stopMuteReader()
             if muteTap != 0 {
                 try checked(AudioHardwareDestroyProcessTap(muteTap), "解除应用静音")
                 muteTap = 0
             }
         } else {
-            let description = CATapDescription(processes: Array(processes).sorted(), deviceUID: device.uid, stream: 0)
-            description.name = "EvenTone · 应用静音"
-            description.isPrivate = true
-            description.muteBehavior = .muted
+            let description = Hardware.applicationMuteDescription(processes)
             if muteTap == 0 {
                 try checked(AudioHardwareCreateProcessTap(description, &muteTap), "静音应用")
+                let uid = try Hardware.string(muteTap, kAudioTapPropertyUID)
+                let specification: [String: Any] = [
+                    kAudioAggregateDeviceNameKey: "EvenTone Muted Audio",
+                    kAudioAggregateDeviceUIDKey: "local.eventone.mute.\(UUID().uuidString)",
+                    kAudioAggregateDeviceIsPrivateKey: true,
+                    kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: uid]],
+                    kAudioAggregateDeviceTapAutoStartKey: true
+                ]
+                try checked(AudioHardwareCreateAggregateDevice(specification as CFDictionary, &muteAggregate), "建立应用静音读取通路")
+                // Input-only aggregate: no microphone, hardware output, recording or retained samples.
+                try checked(AudioDeviceCreateIOProcID(muteAggregate, { _, _, _, _, _, _, _ in noErr },
+                                                     nil, &muteIOProc), "建立应用静音回调")
+                guard let muteIOProc else { throw AudioFailure(message: "未能创建应用静音回调。") }
+                try checked(AudioDeviceStart(muteAggregate, muteIOProc), "启动应用静音通路")
             } else { try setDescription(description, on: muteTap) }
+        }
+    }
+
+    private func stopMuteReader() throws {
+        if let muteIOProc, muteAggregate != 0 {
+            _ = AudioDeviceStop(muteAggregate, muteIOProc)
+            let destroyed = AudioDeviceDestroyIOProcID(muteAggregate, muteIOProc)
+            if destroyed == noErr { self.muteIOProc = nil }
+            // Destroying the aggregate below also releases a callback if explicit destroy failed.
+        }
+        if muteAggregate != 0 {
+            try checked(AudioHardwareDestroyAggregateDevice(muteAggregate), "释放应用静音读取通路")
+            muteAggregate = 0
+            muteIOProc = nil
         }
     }
 
@@ -164,7 +191,9 @@ final class AudioRouter {
             if result == noErr { tap = 0 }
             else { failures.append("音频 tap 释放 \(result)") }
         }
-        if muteTap != 0 {
+        do { try stopMuteReader() }
+        catch { failures.append(error.localizedDescription) }
+        if muteTap != 0 && muteAggregate == 0 {
             let result = AudioHardwareDestroyProcessTap(muteTap)
             if result == noErr { muteTap = 0 }
             else { failures.append("应用静音释放 \(result)") }
@@ -203,7 +232,6 @@ final class AudioWorker: @unchecked Sendable {
     private let referencePlayer = ReferencePlayer()
     private var selection: OutputSelection?
     private var applicationMutes = ApplicationMuteState()
-    private var applicationDevice: OutputDevice?
 
     func currentDevice() async throws -> OutputDevice {
         try await perform { _ in try OutputDevice.current() }
@@ -236,18 +264,17 @@ final class AudioWorker: @unchecked Sendable {
 
     func start(device: OutputDevice, automatic: Bool, volume: Float, trim: Float) async throws {
         try await perform { [self] router in
-            let applications = try AudioApplications.read(deviceID: device.id)
+            let applications = try AudioApplications.read()
             try router.start(device: device, automatic: automatic, volume: volume, trim: trim,
                              muted: applicationMutes.processIDs(in: applications))
-            applicationDevice = device
         }
     }
 
     func applications() async throws -> [AudioApplication] {
         try await perform { [self] router in
             try router.checkMuteHealth()
-            guard let device = applicationDevice, router.isRunning else { return [] }
-            let applications = try AudioApplications.read(deviceID: device.id)
+            guard router.isRunning else { return [] }
+            let applications = try AudioApplications.read()
             try router.setMutedProcesses(applicationMutes.processIDs(in: applications))
             return applicationMutes.rows(applications)
         }
@@ -255,10 +282,10 @@ final class AudioWorker: @unchecked Sendable {
 
     func setApplicationMuted(id: String, muted: Bool) async throws -> [AudioApplication] {
         try await perform { [self] router in
-            guard let device = applicationDevice, router.isRunning else {
+            guard router.isRunning else {
                 throw AudioFailure(message: "请先开启 EvenTone。")
             }
-            let applications = try AudioApplications.read(deviceID: device.id)
+            let applications = try AudioApplications.read()
             guard let application = applicationMutes.rows(applications).first(where: { $0.id == id }) else {
                 throw AudioFailure(message: "该应用已停止音频输出，请刷新后重试。")
             }
@@ -272,7 +299,6 @@ final class AudioWorker: @unchecked Sendable {
     func stop(clearApplicationMutes: Bool = false) async throws {
         try await perform { [self] router in
             if clearApplicationMutes { applicationMutes.clear() }
-            applicationDevice = nil
             try router.stop()
         }
     }

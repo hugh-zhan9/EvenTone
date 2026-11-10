@@ -13,6 +13,15 @@ func checked(_ status: OSStatus, _ operation: String) throws {
 }
 
 enum Hardware {
+    /// Suppress every output stream of the selected processes, on every device.
+    static func applicationMuteDescription(_ processes: Set<UInt32>) -> CATapDescription {
+        let description = CATapDescription(stereoMixdownOfProcesses: processes.sorted())
+        description.name = "EvenTone · 应用静音"
+        description.isPrivate = true
+        description.muteBehavior = .muted
+        return description
+    }
+
     static let system = AudioObjectID(kAudioObjectSystemObject)
 
     static func address(_ selector: AudioObjectPropertySelector,

@@ -1,12 +1,30 @@
 import Foundation
+import CoreAudio
 
 final class ApplicationMuteTests {
     private let chrome = AudioApplication(id: "/Applications/Chrome.app", name: "Chrome", processIDs: [11, 12], isActive: true)
     private let safari = AudioApplication(id: "/Applications/Safari.app", name: "Safari", processIDs: [21], isActive: true)
 
+    func testMuteCoversAllOutputStreams() {
+        for processes: Set<UInt32> in [[], [11], [11, 21]] {
+            let description = Hardware.applicationMuteDescription(processes)
+            expectNil(description.deviceUID)
+            expectNil(description.stream)
+            expectTrue(description.isMixdown)
+            expectFalse(description.isExclusive)
+            expectTrue(description.isPrivate)
+            expectEqual(description.muteBehavior, .muted)
+            expectEqual(Set(description.processes), processes)
+        }
+    }
+
     func testBrowserHelpersAndDistinctApps() {
         let url = URL(fileURLWithPath: "/Applications/Chrome.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper")
         expectEqual(ApplicationMuteState.owningApplication(at: url)?.path, "/Applications/Chrome.app")
+        let wechat = URL(fileURLWithPath: "/Applications/WeChat.app/Contents/Frameworks/wxplayer")
+        expectEqual(ApplicationMuteState.owningApplication(at: wechat)?.path, "/Applications/WeChat.app")
+        let nested = URL(fileURLWithPath: "/Applications/WeChat.app/Contents/MacOS/WeChatAppEx.app/Contents/MacOS/WeChatAppEx")
+        expectEqual(ApplicationMuteState.owningApplication(at: nested)?.path, "/Applications/WeChat.app")
         expectNil(ApplicationMuteState.owningApplication(at: URL(fileURLWithPath: "/usr/bin/player")))
         let helper = AudioApplication(id: chrome.id, name: chrome.name, processIDs: [13], isActive: false)
         let grouped = ApplicationMuteState.group([chrome, safari, helper])

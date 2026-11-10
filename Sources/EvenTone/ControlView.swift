@@ -200,7 +200,7 @@ struct ControlView: View {
     private var applicationAudioPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("应用声音", systemImage: "speaker.wave.2").font(.system(size: 13, weight: .medium))
-            Text("当前输出设备 · 关闭总开关即解除静音")
+            Text("所有应用 · 关闭总开关即解除静音")
                 .font(.system(size: 10)).foregroundStyle(secondary)
             if !model.enabled {
                 Text("开启 EvenTone 后管理应用声音。")
