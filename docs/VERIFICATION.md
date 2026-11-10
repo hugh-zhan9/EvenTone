@@ -158,3 +158,79 @@
 - HAL 清理失败故障注入；该路径目前为源码审查覆盖。
 
 产品限制：RMS 估计不是认证 LUFS，采样峰值限幅不是真峰值限幅；只支持默认设备单流单/立体声 Float32。无信号时显示等待，不把此状态当作权限已获批或某个源一定可捕获的证明。
+
+## 2026-11-09 · 应用声音管理（工作区，待实机验收完成）
+
+任务分支 `feature/app-audio-mute`，基线 `d22b966f30ab33d9a5a72ce325df64d3944aa773`。用户确认关闭总开关解除静音、不持久化选择。设计见 [应用声音管理](loopx/design/2026-11-09-app-audio-mute/概要设计.md)。未提交、推送、合并或发布。
+
+- 基线 `nice -n 10 bash scripts/test.sh`：30 项通过。
+- 最终同命令：36 项通过；新增覆盖浏览器 helper 归并、独立应用隔离、关闭清空、进程更换／空闲、应用选择失败不提交、三步 HAL 更新失败清理及 sticky error、清理失败、静音切换顺序和 no-op。
+- 在 `.build/app-mute-validation/mutations` 隔离副本做手动变异：反转应用筛选、移除选择提交、丢弃 sticky error、移除清理调用、仅归并内层 helper，最终 5 个均由行为断言捕获。两次初始变异因 warnings-as-errors 未能编译，不算有效杀死；修正变异表达后分别验证失败。生产源码未被改动。
+- 完整构建：`nice -n 10 swift build --build-system native -j 2 -c release -Xswiftc -warnings-as-errors -Xswiftc -load-plugin-library -Xswiftc /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib`，exit 0。本机 CLT Swift 6.4 默认 swiftbuild 缺 SwiftUIMacros，首次构建失败；显式加载已安装 Xcode 插件后成功。native backend 的弃用提示保留；没有修改系统配置。修复了本次 PID 宏导入和 description pointer 编译诊断。
+- 已将最新 release binary 放入本机 `dist/EvenTone.app` 并 ad-hoc 签名，`codesign --verify --strict` 通过。旧执行文件暂保存在 `.build/app-mute-validation/previous-EvenTone`。
+- 独立只读审查发现并修复部分 HAL 更新错误可能被 UI generation 丢弃的问题；复审无剩余 Critical / Important。资源层立即清理，并将错误保存到下一次轮询；修改 description 时保留原 tap UUID。
+- 原生 UI 检查：新增应用声音区域、关闭提示和滚动面板正常显示。测试前旧版已处于关闭且报 Core Audio 1937010544 的状态；总音量约 30.48%、均衡开启、外置耳机 44.1 kHz、补偿 0 dB，未修改这些设置。
+- 使用本地低电平合成 WAV 在独立 Chrome 测试窗口播放；`--diagnose` 正确识别 `/Applications/Google Chrome.app`、活动输出和单个音频 process object。没有读取网页内容来归属应用，也没有记录系统音频。
+- 实机阻塞：新构建在 AudioDeviceCreateIOProcID 等待系统授权。TCC 日志明确显示 `local.eventone.app` 旧 code requirement 与新 ad-hoc 签名不匹配，并进入 `kTCCServiceAudioCapture` prompting。已请求用户在 Mac 手动重新授权；电脑操作工具拒绝访问系统授权窗口，未尝试绕过。Chrome 测试音已暂停。
+
+待验证：双浏览器真实静音／恢复、关闭解除、退出重开无选择，以及设备切换／睡眠恢复。上述纯逻辑与编译证据不能代替这些真实音频检查。授权期间保留待测应用和 localhost 测试服务；后续继续验证并恢复测试前总开关关闭、关闭测试窗口、停止测试服务。
+
+
+## 2026-11-10 · 授权后的应用静音实机检查
+
+用户确认已允许系统音频录制，使用同一 `dist/EvenTone.app`，没有重新签名或改动实现。沿用上一节 36 项测试、5 个有效手动变异、release 构建和独立复审证据；本轮只追加文档，不重编译。
+
+本地合成声源：Chrome 440 Hz、振幅 0.015；Edge 880 Hz、振幅 0.005，两者都在独立测试窗口循环播放。系统输出原为外置耳机 44.1 kHz、2 通道，EvenTone 音量 0.3047791550279331，均衡开启，补偿 0 dB。通过原生界面观察 Core Audio 回调电平和按钮状态，没有录制音频，也未把数字信号证据描述成主观听感测量。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 两浏览器识别 | Google Chrome / Microsoft Edge 各一行，显示应用名而非 helper 名 |
+| 静音 Chrome、保留 Edge | Chrome 标为已静音，Edge 仍输出，输入约 -49.1 dBFS，输出约 -47.4 dBFS |
+| 两个应用都静音 | 输入和输出电平消失，仍保持已启动 |
+| 只恢复 Chrome | 输入约 -39.4 dBFS；Edge 仍为已静音 |
+| 关闭总开关后再开启 | 关闭无清理错误；重开两者均未静音，合成输入约 -39.0 dBFS |
+| 带 Chrome 静音退出并重开 | 重开两者均未静音，合成输入恢复，验证静音选择没有持久化 |
+| 外置耳机 → U27B35 显示器 → 外置耳机 | 当前设备正确更新，Chrome 静音保留，Edge 输入约 -49.1 dBFS，显示器 48 kHz、耳机 44.1 kHz |
+| MacBook Pro 内置扬声器 | 触发“输出设备的音频缓冲格式发生变化”，自动停用并清理；清空静音后重开仍失败。不能声明内置扬声器兼容通过。未用旧版本单独复现，因此不将其定性为已证实的历史缺陷 |
+
+未实测系统睡眠／唤醒，不主动让用户机器睡眠。内置扬声器失败发生在既有 DSP 缓冲格式保护路径，本次未弱化保护或扩大修改范围；仍是已知未解决的设备兼容性问题。应用静音在外置耳机与显示器输出场景通过，不等于所有浏览器和设备均兼容。
+
+收尾：恢复外置耳机 44.1 kHz、总开关关闭，保留原总音量、补偿、均衡和登录启动设置。两个任务测试窗口已关闭，localhost:8818 测试服务已停止，未退出用户浏览器。工作区仍在 feature/app-audio-mute，无提交、推送或发布；没有创建 stash/worktree。
+
+
+## 2026-11-10 · 内置扬声器修复及三个输出完整复核
+
+本节更新前一节的内置扬声器未解决结论。用户要求继续解决并验证；复用原任务分支，不新增分支或 stash。源代码改动集中于 DSP 输入通道寻址，Swift 应用控制逻辑没有改变。
+
+### 根因与修复
+
+隔离诊断副本复现：内置扬声器 tap metadata 起点为 7（零基 inputStart=6），但实际回调只有一个 2 通道输入缓冲，4096 字节且数据指针有效；输出同为 2 通道、4096 字节。HAL 省略了已禁用的 6 个物理输入通道，旧代码却仍按 metadata 起点读取，误报 formatFault。输入输出帧数并不失配。
+
+`tap_start` 仅接受“只含 tap 的紧凑布局”和“完整保留禁用物理槽位”的布局；后者要求物理前缀全部 NULL 且边界完整对齐。其他布局、无效字节数、输入输出帧数失配继续拒绝，输出保持清零。不读取麦克风、不新增重试、不弱化格式检查。
+
+新增 compact6 回归在修复前 exit 133，准确复现错误；修复后 `nice -n 10 bash scripts/test.sh` 38 项通过。新增 retained6、活跃物理输入拒绝和不完整布局拒绝场景。隔离变异移除物理输入 NULL 保护后测试以 signal 5 失败，生产源码未被变异。独立只读复审本次 DSP 增量无 Critical / Important。
+
+同前节 release 构建命令 exit 0，耗时 4.04 秒，签名校验通过。临时诊断只存在 `.build/speaker-buffer-probe`，没有进入生产源码。修复后独立探针在内置扬声器观察到 285 次正常回调，input≈-39.43 dBFS、formatFault=false。
+
+独立命令行全链路验收在更新 tap description 时被 Core Audio `kAudioDevicePermissionsError (!hog)` 拒绝，该次验收未通过；未用它替代最终应用验收，也未尝试绕过权限。后续全部结果均来自已授权的最终 `dist/EvenTone.app` 原生 UI 和实际音频回调。
+
+### 最终应用实机结果
+
+Chrome / Edge 使用与前节相同的两路低电平本地合成声；不暂停播放器来模拟静音，不记录系统音频。通过应用电平验证数字信号，不声称测量耳内声压。
+
+| 输出设备 | Chrome 静音后 Edge 输入 | 两应用静音 | 仅恢复 Chrome | 关开总开关后 | 结果 |
+| --- | --- | --- | --- | --- | --- |
+| MacBook Pro 扬声器 48 kHz | -49.1 dBFS | 输入／输出无信号 | -39.4 dBFS，Edge 仍静音 | 两者未静音，约 -39.1 dBFS | 通过，无格式错误 |
+| 外置耳机 44.1 kHz | -49.1 dBFS | 输入／输出无信号 | -39.6 dBFS，Edge 仍静音 | 两者未静音，约 -39.1 dBFS | 通过 |
+| U27B35 48 kHz | -49.0 dBFS | 输入／输出无信号 | -39.5 dBFS，Edge 仍静音 | 两者未静音，约 -39.1 dBFS | 通过 |
+
+内置扬声器 → 外置耳机 → U27B35 切换时保留 Chrome 静音选择，Edge 继续输入。每个设备的关开检查均没有清理错误。退出重开不记住选择的证据复用前节：本次不改变该逻辑、Preferences、UI 或会话状态输入。
+
+已恢复原外置耳机及总开关关闭，原音量／均衡／补偿／登录项不变。准确匹配本轮 localhost 测试标题后关闭两个测试窗口，停止端口 8818 的任务 HTTP 服务。没有退出用户浏览器、没有改变系统隐私授权。保留本机最终应用；代码未提交／推送／发布。
+
+系统睡眠唤醒仍未做实际睡眠测试，本次三个输出验证不覆盖这个场景。测试／构建日志与隔离探针在忽略的 `.build/speaker-buffer-probe`，没有扩大提交范围。
+
+
+### 提交与整合核对（2026-11-10）
+
+用户已授权将本任务提交、合入主分支并 push。提交前重新 fetch origin/main，确认远端与本地 main 同为基线 d22b966，没有额外主干变动。最终实现和测试输入未在上一轮通过后变更，仅补充验证记录与授权状态；复用 38 项测试、release 构建、有效变异、独立审查及三种输出的实机结果。任务提交后以整棵 tree 比较确认 main 快进整合结果，不因新增提交 SHA 或分支切换重编译。实际提交 SHA 与远端同步结果由本轮 Git 命令输出及交付回复记录。

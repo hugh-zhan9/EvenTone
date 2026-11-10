@@ -6,7 +6,14 @@ let preferences = PreferencesTests()
 let outputSelection = OutputSelectionTests()
 let login = LoginItemTests()
 let calibration = CalibrationTests()
+let applicationMute = ApplicationMuteTests()
 let cases: [(String, () throws -> Void)] = [
+    ("Partial native mute failures clean up and survive stale UI responses", applicationMute.testPartialRoutingFailureCleansAndStaysVisible),
+    ("Native mute transition orders suppression and exclusion", applicationMute.testRoutingTransitionOrderAndNoOp),
+    ("Browser helpers group without merging distinct applications", applicationMute.testBrowserHelpersAndDistinctApps),
+    ("Applications mute independently and clear for a new session", applicationMute.testIndependentMuteRestoreAndClear),
+    ("Mute follows process turnover and remains removable while idle", applicationMute.testProcessTurnoverAndIdleSelection),
+    ("Failed HAL update never commits the selected mute state", applicationMute.testFailureDoesNotCommitSelection),
     ("Quiet and loud videos converge", dsp.testQuietAndLoudVideosConverge),
     ("Sudden loud input is limited and settles", dsp.testQuietToLoudTransitionStaysUnderCeilingAndSettles),
     ("Silence and low noise do not accumulate boost", dsp.testSilenceAndVeryLowNoiseDoNotAccumulateBoost),
@@ -14,6 +21,8 @@ let cases: [(String, () throws -> Void)] = [
     ("Limiter preserves stereo ratio", dsp.testLimiterPreservesStereoRatio),
     ("Invalid values, empty, single frame and mono", dsp.testInvalidNumbersEmptySingleFrameAndMono),
     ("Maximum gain and zero volume", dsp.testGainLimitAndZeroVolume),
+    ("Physical input slots must be disabled and match the advertised layout", dsp.testIORetainedPhysicalInputsMustBeDisabledAndComplete),
+    ("Tap mapping supports omitted six-channel physical input", dsp.testIOMapsCompactTapAfterSixDisabledChannels),
     ("Tap mapping skips microphone and writes planar output", dsp.testIOMapsTapAfterDisabledMicrophoneAndPlanarOutput),
     ("Mismatched buffers produce silence and a fault", dsp.testIORejectsMismatchedBuffersWithSilence),
     ("Independent device preferences survive reload", preferences.testIndependentDevicesPersistAndNewDeviceStartsNeutral),

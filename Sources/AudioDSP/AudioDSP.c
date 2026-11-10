@@ -123,6 +123,28 @@ static bool channel(const AudioBufferList *list, unsigned index, float **data, u
     return false;
 }
 
+// HAL may retain disabled physical streams as NULL buffers, or omit them
+// entirely (observed on built-in speakers). Only these two known layouts are
+// valid after et_enable_tap_input; never infer a tap from arbitrary live input.
+static bool tap_start(const ETProcessor *p, const AudioBufferList *input, unsigned *start) {
+    uint64_t channels = 0;
+    for (unsigned b = 0; b < input->mNumberBuffers; b++) channels += input->mBuffers[b].mNumberChannels;
+    if (channels == p->channels) {
+        *start = 0;
+        return true;
+    }
+    if (channels != (uint64_t)p->inputStart + p->channels) return false;
+    unsigned offset = 0;
+    for (unsigned b = 0; b < input->mNumberBuffers && offset < p->inputStart; b++) {
+        const AudioBuffer *buffer = &input->mBuffers[b];
+        if (buffer->mData || buffer->mNumberChannels > p->inputStart - offset) return false;
+        offset += buffer->mNumberChannels;
+    }
+    if (offset != p->inputStart) return false;
+    *start = p->inputStart;
+    return true;
+}
+
 OSStatus et_io_proc(AudioObjectID device, const AudioTimeStamp *now,
                     const AudioBufferList *input, const AudioTimeStamp *inputTime,
                     AudioBufferList *output, const AudioTimeStamp *outputTime, void *context) {
@@ -131,10 +153,15 @@ OSStatus et_io_proc(AudioObjectID device, const AudioTimeStamp *now,
     if (output) for (unsigned b = 0; b < output->mNumberBuffers; b++)
         if (output->mBuffers[b].mData) memset(output->mBuffers[b].mData, 0, output->mBuffers[b].mDataByteSize);
     if (!p || !input || !output) return noErr;
+    unsigned inputStart = 0;
+    if (!tap_start(p, input, &inputStart)) {
+        atomic_store_explicit(&p->formatFault, true, memory_order_relaxed);
+        return noErr;
+    }
     float *in[2], *out[2]; unsigned is[2], os[2], count = 0;
     for (unsigned c = 0; c < p->channels; c++) {
         unsigned ni = 0, no = 0;
-        if (!channel(input, p->inputStart + c, &in[c], &is[c], &ni) ||
+        if (!channel(input, inputStart + c, &in[c], &is[c], &ni) ||
             !channel(output, c, &out[c], &os[c], &no) || ni != no || (c && ni != count)) {
             atomic_store_explicit(&p->formatFault, true, memory_order_relaxed);
             return noErr;

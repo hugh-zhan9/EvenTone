@@ -12,7 +12,8 @@ struct ControlView: View {
             if model.calibration != nil {
                 CalibrationView(model: model)
             } else {
-                mainPanel
+                ScrollView { mainPanel }
+                    .frame(width: 426, height: 740)
             }
         }
         .preferredColorScheme(.dark)
@@ -168,6 +169,8 @@ struct ControlView: View {
                 }
             }
 
+            applicationAudioPanel
+
             LoginItemView(controller: model.loginItem, tint: mint, secondary: secondary)
 
             if let error = model.error {
@@ -192,6 +195,44 @@ struct ControlView: View {
         .background(Color(red: 0.065, green: 0.09, blue: 0.085))
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
+    }
+
+    private var applicationAudioPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("应用声音", systemImage: "speaker.wave.2").font(.system(size: 13, weight: .medium))
+            Text("当前输出设备 · 关闭总开关即解除静音")
+                .font(.system(size: 10)).foregroundStyle(secondary)
+            if !model.enabled {
+                Text("开启 EvenTone 后管理应用声音。")
+                    .font(.system(size: 11)).foregroundStyle(secondary)
+            } else if model.audioApplications.isEmpty {
+                Text("尚未发现音频输出，播放后会自动出现。")
+                    .font(.system(size: 11)).foregroundStyle(secondary)
+            } else {
+                ForEach(model.audioApplications) { application in
+                    HStack(spacing: 10) {
+                        Image(systemName: application.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .foregroundStyle(application.isMuted ? Color.orange : mint)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(application.name).font(.system(size: 12)).lineLimit(1)
+                            Text(application.isMuted ? "已静音" : application.isActive ? "音频输出中" : "等待音频")
+                                .font(.system(size: 10)).foregroundStyle(secondary)
+                        }
+                        Spacer()
+                        Button(application.isMuted ? "恢复声音" : "静音") {
+                            model.setApplicationMuted(application, muted: !application.isMuted)
+                        }
+                        .buttonStyle(.bordered).font(.system(size: 11))
+                        .disabled(model.controlsLocked || model.suspended)
+                        .accessibilityLabel("\(application.isMuted ? "恢复" : "静音") \(application.name)")
+                        .accessibilityIdentifier("appMute:\(application.id)")
+                    }
+                    .padding(10).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func levelMeter(title: String, value: Float) -> some View {

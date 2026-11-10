@@ -141,6 +141,57 @@ final class DSPTests {
         expectEqual(right.last!, 0.2, accuracy: 0.0001)
     }
 
+    func testIOMapsCompactTapAfterSixDisabledChannels() throws {
+        // Built-in speaker HAL advertises tap start channel 7, but omits the six
+        // disabled physical-input channels from the IOProc buffer list.
+        let p = try unwrap(et_create(rate, 2, 6))
+        defer { et_destroy(p) }
+        et_configure(p, false, 1, 0)
+        let input = AudioBufferList.allocate(maximumBuffers: 1)
+        let output = AudioBufferList.allocate(maximumBuffers: 1)
+        defer { free(input.unsafeMutablePointer); free(output.unsafeMutablePointer) }
+        var source = Array(repeating: [Float(0.1), Float(0.2)], count: 512).flatMap { $0 }
+        var destination = [Float](repeating: 0, count: source.count)
+        source.withUnsafeMutableBytes { src in
+            destination.withUnsafeMutableBytes { dst in
+                input[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(src.count), mData: src.baseAddress)
+                output[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(dst.count), mData: dst.baseAddress)
+                for _ in 0..<100 {
+                    _ = et_io_proc(0, nil, input.unsafePointer, nil, output.unsafeMutablePointer, nil, UnsafeMutableRawPointer(p))
+                }
+            }
+        }
+        expectFalse(et_meters(p).formatFault)
+        expectEqual(destination[destination.count - 2], 0.1, accuracy: 0.0001)
+        expectEqual(destination.last!, 0.2, accuracy: 0.0001)
+    }
+
+    func testIORetainedPhysicalInputsMustBeDisabledAndComplete() throws {
+        // Full metadata layout is valid only when every physical input is disabled.
+        for (physicalChannels, livePhysical, valid) in [(6, false, true), (6, true, false), (2, false, false)] {
+            let p = try unwrap(et_create(rate, 2, 6))
+            defer { et_destroy(p) }
+            et_configure(p, false, 1, 0)
+            let input = AudioBufferList.allocate(maximumBuffers: 2)
+            let output = AudioBufferList.allocate(maximumBuffers: 1)
+            let samples = UnsafeMutablePointer<Float>.allocate(capacity: 512 * 8)
+            let result = UnsafeMutablePointer<Float>.allocate(capacity: 512 * 2)
+            samples.initialize(repeating: 0.1, count: 512 * 8)
+            result.initialize(repeating: 0.7, count: 512 * 2)
+            defer { free(input.unsafeMutablePointer); free(output.unsafeMutablePointer); samples.deallocate(); result.deallocate() }
+            input[0] = AudioBuffer(mNumberChannels: UInt32(physicalChannels), mDataByteSize: UInt32(512 * physicalChannels * 4),
+                                   mData: livePhysical ? UnsafeMutableRawPointer(samples) : nil)
+            input[1] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 4096, mData: samples)
+            output[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 4096, mData: result)
+            for _ in 0..<100 {
+                _ = et_io_proc(0, nil, input.unsafePointer, nil, output.unsafeMutablePointer, nil, UnsafeMutableRawPointer(p))
+            }
+            expectEqual(et_meters(p).formatFault, !valid)
+            if valid { expectEqual(result[1023], 0.1, accuracy: 0.0001) }
+            else { expectTrue(UnsafeBufferPointer(start: result, count: 1024).allSatisfy { $0 == 0 }) }
+        }
+    }
+
     func testIORejectsMismatchedBuffersWithSilence() throws {
         let p = try processor(channels: 1)
         defer { et_destroy(p) }

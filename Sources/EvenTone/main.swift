@@ -42,6 +42,10 @@ if CommandLine.arguments.contains("--diagnose") {
         let outputs = try OutputDevice.available()
         print("Selectable outputs: \(outputs.count)")
         for output in outputs { print("  \(output.id == device.id ? "*" : "-") \(output.name) (\(output.sampleRate) Hz)") }
+        let applications = try AudioApplications.read(deviceID: device.id)
+        for application in applications.sorted(by: { $0.name < $1.name }) {
+            print("Audio app: \(application.name) | \(application.id) | active=\(application.isActive) | processes=\(application.processIDs.sorted())")
+        }
         print("No tap created; no audio captured; no system settings changed.")
     } catch {
         fputs("\(error.localizedDescription)\n", stderr)

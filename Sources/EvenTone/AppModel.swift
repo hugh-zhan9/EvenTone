@@ -8,6 +8,8 @@ import Foundation
 final class AppModel: ObservableObject {
     @Published private(set) var device: OutputDevice?
     @Published private(set) var outputDevices: [OutputDevice] = []
+    @Published private(set) var audioApplications: [AudioApplication] = []
+    private var lastApplicationPoll = Date.distantPast
     @Published private(set) var enabled = false {
         didSet { preferences.processingEnabled = enabled }
     }
@@ -95,8 +97,16 @@ final class AppModel: ObservableObject {
                 try await startCurrent()
             } else {
                 suspended = false
-                try await stop()
+                try await stop(clearApplicationMutes: true)
             }
+        }
+    }
+
+    func setApplicationMuted(_ application: AudioApplication, muted: Bool) {
+        guard enabled, running, !suspended, !controlsLocked else { return }
+        error = nil
+        runOperation(muted ? "正在静音应用…" : "正在恢复应用声音…") { [self] in
+            audioApplications = try await worker.setApplicationMuted(id: application.id, muted: muted)
         }
     }
 
@@ -224,6 +234,8 @@ final class AppModel: ObservableObject {
         guard !suspended, let device else { return }
         try await worker.start(device: device, automatic: automatic, volume: Float(volume), trim: Float(trim))
         running = true
+        audioApplications = try await worker.applications()
+        lastApplicationPoll = Date()
         // Apply any slider changes made while HAL was waiting for permission.
         worker.configure(automatic: automatic, volume: Float(volume), trim: Float(trim))
         receivingAudio = false
@@ -231,8 +243,9 @@ final class AppModel: ObservableObject {
         lastCallbacks = 0
     }
 
-    private func stop() async throws {
-        try await worker.stop()
+    private func stop(clearApplicationMutes: Bool = false) async throws {
+        audioApplications = []
+        try await worker.stop(clearApplicationMutes: clearApplicationMutes)
         running = false
         receivingAudio = false
         meters = try await worker.meters()
@@ -255,7 +268,8 @@ final class AppModel: ObservableObject {
                     enabled = false
                     running = false
                     self.error = error.localizedDescription
-                    do { try await worker.stop() }
+                    audioApplications = []
+                    do { try await worker.stop(clearApplicationMutes: true) }
                     catch { self.error = "\(self.error ?? "")\n\(error.localizedDescription)" }
                     // No device or a disconnected device still needs the default-output listener.
                     if device == nil { try? await installMonitor() }
@@ -301,6 +315,18 @@ final class AppModel: ObservableObject {
                     return
                 }
             }
+            if processing && Date().timeIntervalSince(lastApplicationPoll) >= 1 {
+                lastApplicationPoll = Date()
+                do {
+                    let applications = try await worker.applications()
+                    guard expectedGeneration == generation else { return }
+                    audioApplications = applications
+                } catch {
+                    guard expectedGeneration == generation else { return }
+                    fail(error.localizedDescription)
+                    return
+                }
+            }
             if let side = calibrationPlaying {
                 do {
                     let playing = try await worker.referenceIsPlaying()
@@ -319,7 +345,7 @@ final class AppModel: ObservableObject {
     private func fail(_ message: String) {
         error = message
         enabled = false
-        runOperation("正在释放音频通路…") { [self] in try await stop() }
+        runOperation("正在释放音频通路…") { [self] in try await stop(clearApplicationMutes: true) }
     }
 
     func shutdown() {
