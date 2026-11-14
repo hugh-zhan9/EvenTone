@@ -7,8 +7,9 @@ clang -std=c11 -Wall -Wextra -Werror -O2 -I Sources/AudioDSP/include \
     -c Sources/AudioDSP/AudioDSP.c -o "$test_build/AudioDSP.o"
 printf 'module AudioDSP { header "%s/Sources/AudioDSP/include/AudioDSP.h" export * }\n' "$PWD" > "$test_build/module.modulemap"
 swiftc -warnings-as-errors -I "$test_build" \
+    Sources/EvenTone/ProcessingStartup.swift Sources/EvenTone/AudioRouter.swift Sources/EvenTone/AudioApplications.swift Sources/EvenTone/ReferencePlayer.swift \
     Sources/EvenTone/AudioHardware.swift Sources/EvenTone/ApplicationMuteState.swift Sources/EvenTone/Preferences.swift Sources/EvenTone/OutputSelection.swift \
     Sources/EvenTone/CalibrationSession.swift Sources/EvenTone/ReferenceSignal.swift \
     Sources/EvenTone/LoginItemController.swift Tests/EvenToneTests/*.swift \
-    "$test_build/AudioDSP.o" -framework CoreAudio -framework ServiceManagement -o "$test_build/EvenToneTests"
+    "$test_build/AudioDSP.o" -framework CoreAudio -framework ServiceManagement -framework AVFAudio -framework AppKit -o "$test_build/EvenToneTests"
 "$test_build/EvenToneTests"

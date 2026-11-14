@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var enabled = false {
         didSet { preferences.processingEnabled = enabled }
     }
+    @Published private(set) var experimentalCallMuting = false
     @Published private(set) var suspended = false
     @Published private(set) var busy = false
     @Published private(set) var receivingAudio = false
@@ -46,14 +47,16 @@ final class AppModel: ObservableObject {
     private var exiting = false
     private var calibrationCancelPending = false
 
+    var callPassthrough: Bool { enabled && !suspended && device?.isBluetoothCallMode == true }
     var controlsLocked: Bool { busy || calibration != nil }
     var canBeginCalibration: Bool { !controlsLocked && device != nil && volume > 0 }
-    var hasSignal: Bool { enabled && running && !suspended && receivingAudio && meters.inputDB > -70 }
+    var hasSignal: Bool { enabled && running && !callPassthrough && !suspended && receivingAudio && meters.inputDB > -70 }
     var status: String {
         if busy { return busyMessage }
         if error != nil { return "需要处理" }
         if suspended { return "睡眠暂停" }
         if !enabled { return "已关闭" }
+        if callPassthrough { return "通话中暂停处理 · 原声直通" }
         return hasSignal ? "正在处理音频" : "已启动 · 等待音频"
     }
 
@@ -62,6 +65,7 @@ final class AppModel: ObservableObject {
         volume = preferences.volume
         automatic = preferences.automatic
         enabled = preferences.processingEnabled
+        experimentalCallMuting = preferences.experimentalCallMuting
         refreshDevice()
         timer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
@@ -99,6 +103,17 @@ final class AppModel: ObservableObject {
                 suspended = false
                 try await stop(clearApplicationMutes: true)
             }
+        }
+    }
+
+    func setExperimentalCallMuting(_ value: Bool) {
+        guard !controlsLocked else { return }
+        experimentalCallMuting = value
+        preferences.experimentalCallMuting = value
+        guard callPassthrough else { return }
+        runOperation("正在更新通话模式…") { [self] in
+            try await stop()
+            try await startCurrent()
         }
     }
 
@@ -232,7 +247,18 @@ final class AppModel: ObservableObject {
 
     private func startCurrent() async throws {
         guard !suspended, let device else { return }
-        try await worker.start(device: device, automatic: automatic, volume: Float(volume), trim: Float(trim))
+        let processing = try await worker.start(device: device, automatic: automatic, volume: Float(volume), trim: Float(trim), experimentalCallMuting: experimentalCallMuting)
+        if !processing {
+            let latest = try await worker.currentDevice()
+            if latest != self.device || !latest.isBluetoothCallMode {
+                // A call can end back on the original device while startup waits.
+                // Even an equal snapshot then needs normal processing restarted.
+                try await stop()
+                try await syncDevice()
+                refreshPending = true
+                return
+            }
+        }
         running = true
         audioApplications = try await worker.applications()
         lastApplicationPoll = Date()
@@ -296,8 +322,9 @@ final class AppModel: ObservableObject {
     }
 
     private func poll() {
-        let processing = enabled && running && !suspended
-        guard (processing || calibrationPlaying != nil), !busy, !pollPending, !exiting else { return }
+        let active = enabled && running && !suspended
+        let processing = active && !callPassthrough
+        guard (active || calibrationPlaying != nil), !busy, !pollPending, !exiting else { return }
         pollPending = true
         let expectedGeneration = generation
         Task { [self] in
@@ -311,11 +338,19 @@ final class AppModel: ObservableObject {
                 }
                 receivingAudio = Date().timeIntervalSince(lastCallbackAt) < 0.5
                 if meters.formatFault {
+                    // A Bluetooth mode switch can reach IO before the property listener.
+                    // Preserve the user's enabled intent when the new mode needs passthrough.
+                    let latest = try? await worker.currentDevice()
+                    guard expectedGeneration == generation else { return }
+                    if latest?.isBluetoothCallMode == true {
+                        refreshDevice()
+                        return
+                    }
                     fail("输出设备的音频缓冲格式发生变化，请确认设备后重新开启。")
                     return
                 }
             }
-            if processing && Date().timeIntervalSince(lastApplicationPoll) >= 1 {
+            if active && Date().timeIntervalSince(lastApplicationPoll) >= 1 {
                 lastApplicationPoll = Date()
                 do {
                     let applications = try await worker.applications()

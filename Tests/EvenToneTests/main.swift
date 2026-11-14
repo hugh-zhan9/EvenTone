@@ -1,6 +1,7 @@
 import Foundation
 
 setbuf(stdout, nil)
+let bluetooth = BluetoothCallTests()
 let dsp = DSPTests()
 let preferences = PreferencesTests()
 let outputSelection = OutputSelectionTests()
@@ -8,6 +9,13 @@ let login = LoginItemTests()
 let calibration = CalibrationTests()
 let applicationMute = ApplicationMuteTests()
 let cases: [(String, () throws -> Void)] = [
+    ("Call mute target follows recovered device and rejects ended calls", bluetooth.testCallTargetIsReadAfterStartupRecoveryAndRejectsMusicMode),
+    ("Call mute experiment defaults off and persists", preferences.testCallMutingExperimentDefaultsOffAndPersists),
+    ("Call mute tap preserves selected process and device scope", bluetooth.testCallMuteDescriptionTargetsOnlySelectedProcessesAndDevice),
+    ("Call passthrough keeps application control active without DSP", bluetooth.testPassthroughKeepsApplicationControlActiveWithoutDSP),
+    ("Startup call transitions preserve intent only after confirmed cleanup", bluetooth.testTransitionDuringStartupPreservesIntentOnlyAfterCleanup),
+    ("Bluetooth call mode is distinguished from music and wired outputs", bluetooth.testOnlyClassicBluetoothCommunicationRatesBypass),
+    ("Bluetooth calls bypass native capture and release processing", bluetooth.testCallBypassesNativeStartupEvenWithInvalidDevice),
     ("Application mute covers all devices and output streams", applicationMute.testMuteCoversAllOutputStreams),
     ("Partial native mute failures clean up and survive stale UI responses", applicationMute.testPartialRoutingFailureCleansAndStaysVisible),
     ("Native mute transition orders suppression and exclusion", applicationMute.testRoutingTransitionOrderAndNoOp),

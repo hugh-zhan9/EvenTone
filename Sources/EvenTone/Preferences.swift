@@ -11,6 +11,11 @@ final class Preferences {
         set { defaults.set(newValue, forKey: "processingEnabled") }
     }
 
+    var experimentalCallMuting: Bool {
+        get { (defaults.object(forKey: "experimentalCallMuting") as? NSNumber)?.boolValue ?? false }
+        set { defaults.set(newValue, forKey: "experimentalCallMuting") }
+    }
+
     var volume: Double {
         get {
             guard let number = defaults.object(forKey: "outputVolume") as? NSNumber else { return 0.8 }

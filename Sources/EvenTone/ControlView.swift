@@ -63,10 +63,10 @@ struct ControlView: View {
                 }
                 HStack {
                     Text("自动增益").foregroundStyle(secondary)
-                    Text(model.enabled ? String(format: "%+.1f dB", model.meters.automaticGainDB) : "—")
+                    Text(model.enabled && !model.callPassthrough ? String(format: "%+.1f dB", model.meters.automaticGainDB) : "—")
                         .monospacedDigit().foregroundStyle(mint)
                     Spacer()
-                    Text(model.meters.reductionDB > 0.5 && model.enabled ? "峰值保护中" : "峰值保护就绪")
+                    Text(model.callPassthrough ? "处理已暂停" : model.meters.reductionDB > 0.5 && model.enabled ? "峰值保护中" : "峰值保护就绪")
                         .foregroundStyle(secondary)
                 }.font(.system(size: 10))
             }
@@ -202,8 +202,21 @@ struct ControlView: View {
             Label("应用声音", systemImage: "speaker.wave.2").font(.system(size: 13, weight: .medium))
             Text("所有应用 · 关闭总开关即解除静音")
                 .font(.system(size: 10)).foregroundStyle(secondary)
+            Toggle("通话中保留应用静音（实验）", isOn: Binding(
+                get: { model.experimentalCallMuting }, set: model.setExperimentalCallMuting))
+                .font(.system(size: 11)).tint(mint).disabled(model.controlsLocked)
+                .accessibilityIdentifier("experimentalCallMuting")
+            Text("默认使用原声直通保障通话。实验静音若无效或影响通话，请关闭此选项。")
+                .font(.system(size: 10)).foregroundStyle(secondary)
+            if model.callPassthrough && model.experimentalCallMuting {
+                Text("通话期间暂停均衡和音量补偿，正在尝试保留应用静音；通话结束后自动恢复处理。")
+                    .font(.system(size: 11)).foregroundStyle(secondary)
+            }
             if !model.enabled {
                 Text("开启 EvenTone 后管理应用声音。")
+                    .font(.system(size: 11)).foregroundStyle(secondary)
+            } else if model.callPassthrough && !model.experimentalCallMuting {
+                Text("通话中使用原声，静音选择暂不应用；通话结束后自动恢复原处理和静音选择。")
                     .font(.system(size: 11)).foregroundStyle(secondary)
             } else if model.audioApplications.isEmpty {
                 Text("尚未发现音频输出，播放后会自动出现。")

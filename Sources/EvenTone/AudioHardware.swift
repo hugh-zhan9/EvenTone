@@ -14,8 +14,13 @@ func checked(_ status: OSStatus, _ operation: String) throws {
 
 enum Hardware {
     /// Suppress every output stream of the selected processes, on every device.
-    static func applicationMuteDescription(_ processes: Set<UInt32>) -> CATapDescription {
-        let description = CATapDescription(stereoMixdownOfProcesses: processes.sorted())
+    static func applicationMuteDescription(_ processes: Set<UInt32>, deviceUID: String? = nil) -> CATapDescription {
+        let description: CATapDescription
+        if let deviceUID {
+            description = CATapDescription(processes: processes.sorted(), deviceUID: deviceUID, stream: 0)
+        } else {
+            description = CATapDescription(stereoMixdownOfProcesses: processes.sorted())
+        }
         description.name = "EvenTone · 应用静音"
         description.isPrivate = true
         description.muteBehavior = .muted
@@ -90,6 +95,14 @@ struct OutputDevice: Equatable {
     let bytesPerFrame: UInt32
     let bitsPerChannel: UInt32
     let framesPerPacket: UInt32
+    var transportType: UInt32 = 0
+
+    // Classic Bluetooth's low-rate output is the communication configuration.
+    // Do not classify wired/USB low-rate devices or ordinary 44.1/48 kHz playback.
+    var isBluetoothCallMode: Bool {
+        transportType == kAudioDeviceTransportTypeBluetooth &&
+        sampleRate.isFinite && sampleRate > 0 && sampleRate <= 24_000
+    }
 
     static func current() throws -> OutputDevice {
         let id = try Hardware.value(Hardware.system, kAudioHardwarePropertyDefaultOutputDevice, initial: AudioObjectID(0))
@@ -108,7 +121,8 @@ struct OutputDevice: Equatable {
                             sampleRate: format.mSampleRate, channels: format.mChannelsPerFrame, streamCount: streams.count,
                             formatID: format.mFormatID, formatFlags: format.mFormatFlags,
                             bytesPerFrame: format.mBytesPerFrame, bitsPerChannel: format.mBitsPerChannel,
-                            framesPerPacket: format.mFramesPerPacket)
+                            framesPerPacket: format.mFramesPerPacket,
+                            transportType: try Hardware.value(id, kAudioDevicePropertyTransportType, initial: UInt32(0)))
     }
 
     static func available() throws -> [OutputDevice] {

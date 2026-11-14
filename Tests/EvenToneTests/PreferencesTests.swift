@@ -1,6 +1,20 @@
 import Foundation
 
 final class PreferencesTests {
+    func testCallMutingExperimentDefaultsOffAndPersists() throws {
+        let suite = "EvenToneTests.\(UUID().uuidString)"
+        let defaults = try unwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = Preferences(defaults: defaults)
+        expectFalse(first.experimentalCallMuting)
+        first.experimentalCallMuting = true
+        expectTrue(Preferences(defaults: defaults).experimentalCallMuting)
+        first.experimentalCallMuting = false
+        expectFalse(Preferences(defaults: defaults).experimentalCallMuting)
+        defaults.set("invalid", forKey: "experimentalCallMuting")
+        expectFalse(first.experimentalCallMuting)
+    }
+
     func testProcessingStateStartsOffAndPersistsBothChoices() throws {
         let suite = "EvenToneTests.\(UUID().uuidString)"
         let defaults = try unwrap(UserDefaults(suiteName: suite))
